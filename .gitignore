@@ -1,0 +1,6 @@
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+todos_backup_*.json
+privReadme.md
