@@ -18,6 +18,8 @@ Nothing here writes to Notion — the walker is GET-only.
 """
 
 import os
+from datetime import date
+
 import streamlit as st
 
 from notion_walker import NotionClient, walk, analyze, crumb, TIERS, DUE_SOON_DAYS, STALE_DAYS
@@ -65,8 +67,10 @@ def tree_digest(items, cap=500):
             tags.append(("DUE " if it.get("due_confirmed") else "dated ") + str(it["due"]))
         if it.get("age_days") is not None:
             tags.append(f"{it['age_days']}d idle")
-        if it.get("checked"):
+        if it.get("done"):
             tags.append("done")
+        if it.get("reference"):
+            tags.append("reference")
         meta = f" ({', '.join(tags)})" if tags else ""
         lines.append(f"[{crumb(it)}] {it['text']}{meta}")
     if len(items) > cap:
@@ -76,13 +80,16 @@ def tree_digest(items, cap=500):
 def ask_llm(question, digest, source_name, history, model, api_key):
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
+    today = date.today()
     system = (
+        f"Today is {today:%A, %B %-d, %Y}. "
         f"You are a task-triage analyst for the '{source_name}' Notion workspace. "
         "Answer ONLY from the task list below; if something isn't in it, say so. "
         "Be concise and cite the tree path in brackets when you reference a task. "
         "When asked what to prioritize, reason over confirmed due dates, the priority "
         f"tiers ({' > '.join(l for l, _ in TIERS)}, first is highest), and how long "
-        "items have sat idle. You are READ-ONLY: never claim to have changed anything "
+        "items have sat idle. Items tagged 'done' are finished and 'reference' items are "
+        "notes, not tasks. You are READ-ONLY: never claim to have changed anything "
         f"in Notion.\n\nCURRENT TASK LIST for {source_name}:\n{digest}"
     )
     msgs = [{"role": m["role"], "content": m["content"]} for m in history]
@@ -124,7 +131,9 @@ def dashboard(name, a):
                 st.caption("Nothing in this tier.")
 
     if a["lingering"]:
-        st.markdown(f"#### 🐌 Lingering (untouched ≥ {STALE_DAYS}d)")
+        st.markdown(f"#### 🐌 Lingering (no edits in ≥ {STALE_DAYS}d)")
+        st.caption("Open tagged or dated items without a confirmed due date, where nothing "
+                   "in the item or anything under it has changed recently.")
         st.dataframe(rows(a["lingering"], lambda it: f"{it['age_days']}d idle"),
                      use_container_width=True, hide_index=True)
 

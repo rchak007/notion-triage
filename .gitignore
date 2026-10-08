@@ -1,6 +1,30 @@
+# ── Secrets: never commit ────────────────────────────────────────────────────
+# Notion tokens, page ids, Anthropic key, email recipients live here.
 .env
+.env.*
+*.env
+!.env.example
+secrets.toml
 .streamlit/secrets.toml
+# Gmail creds are read in place from market-tracker's .env, never copied here.
+*.pem
+*.key
+*credentials*.json
+*service_account*.json
+privReadme.md
+
+# ── Data / output ────────────────────────────────────────────────────────────
+todos_backup_*.json
+*.log
+logs/
+
+# ── Python / tooling ─────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
-todos_backup_*.json
-privReadme.md
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+
+# ── Private notes ────────────────────────────────────────────────────────────
+OPEN_ITEMS.md
