@@ -74,10 +74,22 @@ Exit code is `1` if the email didn't go out, so a scheduler can retry.
 
 ## Schedule
 
-Scheduled in the Pi 2 crontab (`crontab -l`) since 2026-10-07: **OPA digest daily
-at 9:30 AM Pacific**. The Pi is on America/Los_Angeles, so it follows daylight
-saving. A failed send retries once 15 minutes later. Log:
-`~/.local/state/notion_digest.log`.
+Scheduled in the Pi 2 crontab (`crontab -l`). The Pi is on America/Los_Angeles,
+so times follow daylight saving. A failed send retries once 15 minutes later.
+
+| Email | When | Command | Log |
+|---|---|---|---|
+| OPA triage | daily 9:30 AM | `digest.py --source OPA --send` | `~/.local/state/notion_digest.log` |
+| STRADA TO DO | weekdays 8:00 AM | `digest.py --source STRADA --token-from OPA --page <id> --root "TO DO" --a-only --title "STRADA TO DO" --send` | `~/.local/state/notion_strada.log` |
+
+STRADA reuses the OPA connection (`--token-from OPA`); the page just has to be
+shared with it (page ••• → Connections → OPA). The page id lives only in the
+local crontab.
+
+STRADA reads **only** the subtree under the top-level "TO DO" node: the walker
+lists the page's top-level blocks to find it, then never opens the other
+sections. It sends A-items (`A0000`–`A9999`) plus recurring items whose weekday
+is today, e.g. `due every Friday - Timesheets` under `TO DO › Recurring`.
 
 Cron runs whatever is checked out in this folder, so keep the working copy on a
 branch that has `digest.py` and `mailer.py`.

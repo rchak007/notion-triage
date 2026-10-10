@@ -194,6 +194,16 @@ def _latest(*dates):
 
 # ─── Tree walk (read-only) ───────────────────────────────────────────────────
 
+def find_child(client, page_id, title):
+    """Id of the page's top-level block titled `title` (case-insensitive), or
+    None. Reads only the top-level blocks, so walking from the result never
+    touches sibling sections."""
+    want = title.strip().lower()
+    for block in client.get_children(page_id):
+        if block_text(block).strip().lower() == want:
+            return block["id"]
+    return None
+
 def walk(client, block_id, path, out, done=False, reference=False):
     """Append one item per non-empty block. Returns the latest edit date in this
     subtree, so a parent task counts as active when anything under it changes."""
