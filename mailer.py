@@ -27,6 +27,8 @@ MAIL_ENV_CANDIDATES = [
 ]
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 FROM_NAME = "Notion Triage"
+# Every subject starts with this so it's obvious which project sent it.
+SUBJECT_PREFIX = "from notionTriage - "
 
 
 def mail_env_path():
@@ -70,6 +72,8 @@ def send(subject, body, html=None, to=None, log=print):
     # 16 characters without spaces. With spaces you get a 535 like a bad password.
     password = env.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
     to = to or recipients()
+    if not subject.startswith(SUBJECT_PREFIX):
+        subject = SUBJECT_PREFIX + subject
 
     if not address or not password:
         tried = "\n  ".join(str(c) for c in MAIL_ENV_CANDIDATES if c)
