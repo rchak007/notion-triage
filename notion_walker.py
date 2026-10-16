@@ -109,14 +109,26 @@ NOT_DONE_PREV = {"once", "when", "until", "after", "if", "before", "be", "get", 
 
 # ─── HTTP helper (stdlib only) ───────────────────────────────────────────────
 
-def http_json(method, url, headers, body=None, timeout=30):
+RETRY_STATUS = {429, 500, 502, 503, 504}
+
+def http_json(method, url, headers, body=None, timeout=30, attempts=4):
+    """Retries rate limits (honoring Retry-After), 5xx and network timeouts
+    with backoff; other HTTP errors fail at once. Raises RuntimeError."""
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code} {url}\n{e.read().decode(errors='replace')}") from None
+    for n in range(attempts):
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code not in RETRY_STATUS or n == attempts - 1:
+                raise RuntimeError(f"HTTP {e.code} {url}\n{e.read().decode(errors='replace')}") from None
+            wait = float(e.headers.get("Retry-After") or 2 ** (n + 1))
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if n == attempts - 1:
+                raise RuntimeError(f"network error {url}: {e}") from None
+            wait = 2 ** (n + 1)
+        time.sleep(min(wait, 60))
 
 # ─── Notion client (GET only) ────────────────────────────────────────────────
 

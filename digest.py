@@ -49,7 +49,7 @@ def recurs_on(text, today):
     return WEEKDAYS.index(when) == today.weekday()
 
 
-def build(name, a, items, a_only=False, title=None):
+def build(name, a, items, a_only=False, title=None, group=False, depth=0):
     today = a["today"]
     live = [i for i in items if not i["done"] and not i["reference"]]
     recurring = {id(i) for i in live if recurs_on(i["text"], today) is not None}
@@ -70,7 +70,8 @@ def build(name, a, items, a_only=False, title=None):
         sections += [
             ("🔴 Overdue", overdue, lambda i: f"due {i['due']:%b %-d} · {(today - i['due']).days}d overdue"),
             (f"🟡 Due in the next {DUE_SOON_DAYS} days", soon,
-             lambda i: f"due {i['due']:%a %b %-d} · in {(i['due'] - today).days}d"),
+             lambda i: f"due {i['due']:%a %b %-d} · " + (
+                 "today" if i["due"] == today else f"in {(i['due'] - today).days}d")),
         ]
     def a_note(i):
         if not (i["due"] and i["due_confirmed"]):
@@ -91,28 +92,73 @@ def build(name, a, items, a_only=False, title=None):
     parts = [f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
              f"font-size:14px;line-height:1.4;color:#222\">"
              f"<p style=\"color:#666;margin:0 0 12px\">{html.escape(header)}</p>"]
-    for sec_title, sec_items, note in sections:
-        text.append(f"{sec_title} ({len(sec_items)})")
-        parts.append(f"<h3 style=\"margin:18px 0 6px\">{html.escape(sec_title)} ({len(sec_items)})</h3>")
-        if not sec_items:
-            text.append("  — none")
-            parts.append("<p style=\"color:#888;margin:0\">None</p>")
-        else:
-            parts.append("<ul style=\"margin:0;padding-left:18px\">")
-            for i in sec_items:
-                extra = note(i)
-                text.append(f"  • {i['text']}")
-                text.append(f"      {crumb(i)}" + (f"  ({extra})" if extra else ""))
-                parts.append(
-                    f"<li style=\"margin-bottom:8px\">{html.escape(i['text'])}<br>"
-                    f"<span style=\"color:#888;font-size:12px\">{html.escape(crumb(i))}"
-                    + (f" · <b style=\"color:#a33\">{html.escape(extra)}</b>" if extra else "")
-                    + "</span></li>")
-            parts.append("</ul>")
-        text.append("")
+    if group:
+        render_grouped(sections, items, depth, text, parts)
+    else:
+        for sec_title, sec_items, note in sections:
+            render_section(sec_title, sec_items, note, crumb, text, parts, show_empty=True)
     parts.append("<p style=\"color:#aaa;font-size:11px;margin-top:20px\">"
                  "notion-triage · read-only</p></div>")
     return subject, "\n".join(text), "".join(parts)
+
+
+def render_section(sec_title, sec_items, note, where, text, parts, show_empty=False, indent=""):
+    if not sec_items and not show_empty:
+        return
+    text.append(f"{indent}{sec_title} ({len(sec_items)})")
+    tag = "h4" if indent else "h3"
+    parts.append(f"<{tag} style=\"margin:14px 0 6px\">{html.escape(sec_title)} ({len(sec_items)})</{tag}>")
+    if not sec_items:
+        text.append(f"{indent}  — none")
+        parts.append("<p style=\"color:#888;margin:0\">None</p>")
+    else:
+        parts.append("<ul style=\"margin:0;padding-left:18px\">")
+        for i in sec_items:
+            extra, loc = note(i), where(i)
+            text.append(f"{indent}  • {i['text']}")
+            meta = " · ".join(x for x in (loc, extra) if x)
+            if meta:
+                text.append(f"{indent}      " + "  ".join(x for x in (loc, f"({extra})" if extra else "") if x))
+            parts.append(
+                f"<li style=\"margin-bottom:8px\">{html.escape(i['text'])}"
+                + (f"<br><span style=\"color:#888;font-size:12px\">{html.escape(loc)}" if meta else "")
+                + (f"{' · ' if loc else ''}<b style=\"color:#a33\">{html.escape(extra)}</b>" if extra else "")
+                + ("</span>" if meta else "") + "</li>")
+        parts.append("</ul>")
+    text.append("")
+
+
+SHORT = {"🔁": "recurring today", "🔴": "overdue", "🟡": "due soon", "⭐": "A-items"}
+
+
+def render_grouped(sections, items, depth, text, parts):
+    """One block per top-level node (in page order), each with its own
+    Overdue / Due soon / A-items lists. Empty groups and lists are skipped."""
+    def key(i):
+        p = i["path"][depth:]
+        return p[0] if p else i["text"]
+
+    order = {}
+    for n, i in enumerate(items):
+        order.setdefault(key(i), n)
+    groups = sorted({key(i) for _, lst, _ in sections for i in lst}, key=lambda k: order.get(k, 1e9))
+    if not groups:
+        text.append("Nothing overdue, due soon, or A-tagged. 🎉")
+        parts.append("<p>Nothing overdue, due soon, or A-tagged. 🎉</p>")
+        return
+
+    def where(i):  # breadcrumb below the group heading
+        return " › ".join(i["path"][depth + 1:])
+
+    for g in groups:
+        counts = [f"{len([i for i in lst if key(i) == g])} {SHORT[t[0]]}"
+                  for t, lst, _ in sections if any(key(i) == g for i in lst)]
+        text += ["━" * 40, f"{g.upper()}  ·  " + " · ".join(counts), "━" * 40]
+        parts.append(f"<h2 style=\"margin:26px 0 4px;padding-bottom:4px;border-bottom:2px solid #ddd;"
+                     f"font-size:18px\">{html.escape(g)}</h2>"
+                     f"<p style=\"color:#888;font-size:12px;margin:0\">{html.escape(' · '.join(counts))}</p>")
+        for sec_title, lst, note in sections:
+            render_section(sec_title, [i for i in lst if key(i) == g], note, where, text, parts, indent="  ")
 
 
 def main():
@@ -124,6 +170,7 @@ def main():
     ap.add_argument("--root", help="only walk the subtree under this top-level node title")
     ap.add_argument("--a-only", action="store_true", help="only A-tier items (+ recurring today)")
     ap.add_argument("--title", help="email title, e.g. 'STRADA TO DO'")
+    ap.add_argument("--group", action="store_true", help="section the email by top-level node")
     ap.add_argument("--send", action="store_true", help="email it (default: print only)")
     args = ap.parse_args()
 
@@ -148,7 +195,8 @@ def main():
                 if "HTTP 404" in str(e) else "")
         sys.exit(f"Couldn't read {src} from Notion: {str(e).splitlines()[0]}{hint}")
     a = analyze(items)
-    subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title)
+    subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title,
+                                     group=args.group, depth=len(path))
     print(subject, "\n", body, sep="")
     if args.send and not mailer.send(subject, body, html=html_body):
         sys.exit(1)
