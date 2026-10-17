@@ -32,6 +32,7 @@ from notion_walker import (NotionClient, walk, analyze, crumb, find_child,
                            resolve_source, DUE_SOON_DAYS)
 
 A_TIER_RE = re.compile(r"\bA\d{4}\b")
+URGENT_RE = re.compile(r"\burgent\b", re.I)
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 EVERY_RE = re.compile(r"\bevery\s+(day|weekday|" + "|".join(WEEKDAYS) + r")s?\b", re.I)
 
@@ -81,17 +82,28 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0):
 
     sections.append(("⭐ A-items" if a_only else "⭐ Other open A-items", a_items, a_note))
 
+    # "Urgent" anywhere in the line: listed up top with the full branch, and
+    # still shown in its normal section below.
+    urgent = sorted((i for i in live if URGENT_RE.search(i["text"])),
+                    key=lambda i: (i["due"] or date.max, crumb(i)))
+
     if title:
         subject = f"{title} · {today:%a %b %-d}"
     else:
         subject = (f"{name} triage · {today:%a %b %-d} · {len(overdue)} overdue · "
                    f"{len(soon)} due soon · {len(a_items)} A-items")
+    if urgent:
+        subject += f" · 🚨 {len(urgent)} urgent"
 
     header = f"{title or name} — {today:%A, %B %-d, %Y}"
     text = [header, ""]
     parts = [f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
              f"font-size:14px;line-height:1.4;color:#222\">"
              f"<p style=\"color:#666;margin:0 0 12px\">{html.escape(header)}</p>"]
+    if urgent:
+        parts.append("<div style=\"border-left:4px solid #c00;padding:2px 0 2px 12px;margin-bottom:8px\">")
+        render_section("🚨 URGENT", urgent, a_note, crumb, text, parts)
+        parts.append("</div>")
     if group:
         render_grouped(sections, items, depth, text, parts)
     else:
