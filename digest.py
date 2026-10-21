@@ -27,6 +27,7 @@ import re
 import sys
 from datetime import date
 
+import inbox
 import mailer
 from notion_walker import (NotionClient, walk, analyze, crumb, find_child,
                            resolve_source, DUE_SOON_DAYS)
@@ -50,7 +51,7 @@ def recurs_on(text, today):
     return WEEKDAYS.index(when) == today.weekday()
 
 
-def build(name, a, items, a_only=False, title=None, group=False, depth=0):
+def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=()):
     today = a["today"]
     live = [i for i in items if not i["done"] and not i["reference"]]
     recurring = {id(i) for i in live if recurs_on(i["text"], today) is not None}
@@ -100,6 +101,17 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0):
     parts = [f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
              f"font-size:14px;line-height:1.4;color:#222\">"
              f"<p style=\"color:#666;margin:0 0 12px\">{html.escape(header)}</p>"]
+    if inbox_items:
+        # Inbox lives outside Notion (inbox.json); shown first, as a plain list.
+        text.append(f"📥 INBOX ({len(inbox_items)})")
+        parts.append("<div style=\"border-left:4px solid #36c;padding:2px 0 2px 12px;margin-bottom:8px\">"
+                     f"<h3 style=\"margin:14px 0 6px\">📥 INBOX ({len(inbox_items)})</h3>"
+                     "<ul style=\"margin:0;padding-left:18px\">")
+        for it in inbox_items:
+            text.append(f"  • {it['text']}")
+            parts.append(f"<li style=\"margin-bottom:6px\">{html.escape(it['text'])}</li>")
+        text.append("")
+        parts.append("</ul></div>")
     if urgent:
         parts.append("<div style=\"border-left:4px solid #c00;padding:2px 0 2px 12px;margin-bottom:8px\">")
         render_section("🚨 URGENT", urgent, a_note, crumb, text, parts)
@@ -208,7 +220,8 @@ def main():
         sys.exit(f"Couldn't read {src} from Notion: {str(e).splitlines()[0]}{hint}")
     a = analyze(items)
     subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title,
-                                     group=args.group, depth=len(path))
+                                     group=args.group, depth=len(path),
+                                     inbox_items=inbox.items_for(src))
     print(subject, "\n", body, sep="")
     if args.send and not mailer.send(subject, body, html=html_body):
         sys.exit(1)
