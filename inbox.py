@@ -16,6 +16,14 @@ from datetime import date
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent / "inbox.json"
+# Friendly names → the digest's --source name.
+ALIASES = {"LAUSD": "WORKLL", "TASKLISTS": "WORKLL", "REAL ESTATE": "REALESTATE",
+           "REAL_ESTATE": "REALESTATE"}
+
+
+def norm(source):
+    s = source.strip().upper()
+    return ALIASES.get(s, ALIASES.get(s.replace(" ", ""), s.replace(" ", "")))
 
 
 def load():
@@ -27,7 +35,7 @@ def save(data):
 
 
 def items_for(source):
-    return load().get(source.upper(), [])
+    return load().get(norm(source), [])
 
 
 def main():
@@ -40,7 +48,7 @@ def main():
     data = load()
 
     if args.cmd == "list":
-        for src in ([args.source.upper()] if args.source else sorted(data)):
+        for src in ([norm(args.source)] if args.source else sorted(data)):
             print(f"{src}:")
             for n, it in enumerate(data.get(src, []), 1):
                 print(f"  {n}. {it['text']}  (added {it['added']})")
@@ -48,7 +56,7 @@ def main():
                 print("  — empty")
         return 0
 
-    src = args.source.upper()
+    src = norm(args.source)
     lst = data.setdefault(src, [])
     if args.cmd == "add":
         lst.append({"text": args.text, "added": date.today().isoformat()})
