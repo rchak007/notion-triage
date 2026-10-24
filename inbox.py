@@ -7,6 +7,9 @@ is local only (excluded from git).
   python3 inbox.py list [SOURCE]
   python3 inbox.py add SOURCE "send Srinu Thanksgiving gift"
   python3 inbox.py remove SOURCE <number | text fragment>
+
+Removed items aren't deleted: they're appended, with the date, to
+archiveInbox/<SOURCE>.jsonl (local only, never shown in emails).
 """
 
 import argparse
@@ -16,6 +19,7 @@ from datetime import date
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent / "inbox.json"
+ARCHIVE_DIR = Path(__file__).resolve().parent / "archiveInbox"
 # Friendly names → the digest's --source name.
 ALIASES = {"LAUSD": "WORKLL", "TASKLISTS": "WORKLL", "REAL ESTATE": "REALESTATE",
            "REAL_ESTATE": "REALESTATE"}
@@ -32,6 +36,12 @@ def load():
 
 def save(data):
     DATA.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def archive(source, item):
+    ARCHIVE_DIR.mkdir(exist_ok=True)
+    with open(ARCHIVE_DIR / f"{source}.jsonl", "a") as f:
+        f.write(json.dumps({**item, "done": date.today().isoformat()}, ensure_ascii=False) + "\n")
 
 
 def items_for(source):
@@ -72,9 +82,10 @@ def main():
     if len(hits) != 1:
         print(f"{'no' if not hits else 'several'} {src} inbox items match '{args.which}'")
         return 1
+    archive(src, hits[0])
     lst.remove(hits[0])
     save(data)
-    print(f"removed from {src} inbox: {hits[0]['text']}")
+    print(f"done: moved to archiveInbox/{src}.jsonl: {hits[0]['text']}")
     return 0
 
 
