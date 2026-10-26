@@ -26,6 +26,7 @@ import os
 import re
 import sys
 from datetime import date
+from pathlib import Path
 
 import inbox
 import mailer
@@ -37,6 +38,37 @@ A_TIER_RE = re.compile(r"\bA\d{4}\b")
 URGENT_RE = re.compile(r"\burgent\b", re.I)
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 EVERY_RE = re.compile(r"\bevery\s+(day|weekday|" + "|".join(WEEKDAYS) + r")s?\b", re.I)
+
+
+def read_open_items(path):
+    """Unchecked '- [ ]' items from a markdown checklist, grouped by '## '
+    heading. Each item is its text (wrapped lines joined) up to the first full
+    sentence after any bold title, capped at ~180 characters."""
+    groups, heading, cur = [], "", None
+
+    def flush():
+        if cur is None:
+            return
+        text = re.sub(r"[*`]", "", " ".join(cur)).strip()
+        m = re.match(r"(.{20,}?[.?!])(\s|$)", text)
+        text = m.group(1) if m else text
+        if len(text) > 180:
+            text = text[:177].rsplit(" ", 1)[0] + "…"
+        if not groups or groups[-1][0] != heading:
+            groups.append((heading, []))
+        groups[-1][1].append(text)
+
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("- [ ] "):
+            flush(); cur = [line[6:].strip()]
+        elif cur is not None and line.startswith("  ") and line.strip():
+            cur.append(line.strip())
+        else:
+            flush(); cur = None
+            if line.startswith("## "):
+                heading = line[3:].strip()
+    flush()
+    return groups
 
 
 def recurs_on(text, today):
@@ -52,7 +84,7 @@ def recurs_on(text, today):
     return WEEKDAYS.index(when) == today.weekday()
 
 
-def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=(), measuring=()):
+def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=(), measuring=(), open_items=()):
     today = a["today"]
     live = [i for i in items if not i["done"] and not i["reference"]]
     recurring = {id(i) for i in live if recurs_on(i["text"], today) is not None}
@@ -102,6 +134,11 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_
     parts = [f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
              f"font-size:14px;line-height:1.4;color:#222\">"
              f"<p style=\"color:#666;margin:0 0 12px\">{html.escape(header)}</p>"]
+    n_open = sum(len(g[1]) for g in open_items)
+    if n_open:
+        note = f"👇 {n_open} open items — see the Open items section at the bottom."
+        text += [note, ""]
+        parts.append(f"<p style=\"margin:0 0 12px;color:#555\"><i>{html.escape(note)}</i></p>")
     if inbox_items:
         # Inbox lives outside Notion (inbox.json); shown first, as a plain list.
         text.append(f"📥 INBOX ({len(inbox_items)})")
@@ -130,6 +167,19 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_
     else:
         for sec_title, sec_items, note in sections:
             render_section(sec_title, sec_items, note, crumb, text, parts, show_empty=True)
+    if n_open:
+        text += ["━" * 40, f"📋 OPEN ITEMS ({n_open})", "━" * 40]
+        parts.append(f"<h2 style=\"margin:30px 0 4px;padding-bottom:4px;border-bottom:2px solid #ddd;"
+                     f"font-size:18px\">📋 Open items ({n_open})</h2>")
+        for heading, titles in open_items:
+            text.append(f"  {heading}")
+            parts.append(f"<h4 style=\"margin:12px 0 4px;color:#555\">{html.escape(heading)}</h4>"
+                         "<ul style=\"margin:0;padding-left:18px\">")
+            for t in titles:
+                text.append(f"    • {t}")
+                parts.append(f"<li style=\"margin-bottom:4px\">{html.escape(t)}</li>")
+            text.append("")
+            parts.append("</ul>")
     parts.append("<p style=\"color:#aaa;font-size:11px;margin-top:20px\">"
                  "notion-triage · read-only</p></div>")
     return subject, "\n".join(text), "".join(parts)
@@ -204,6 +254,8 @@ def main():
     ap.add_argument("--a-only", action="store_true", help="only A-tier items (+ recurring today)")
     ap.add_argument("--title", help="email title, e.g. 'STRADA TO DO'")
     ap.add_argument("--group", action="store_true", help="section the email by top-level node")
+    ap.add_argument("--open-items", metavar="PATH",
+                    help="append unchecked '- [ ]' items from this markdown file")
     ap.add_argument("--measure", action="store_true", help="include the Measuring section")
     ap.add_argument("--send", action="store_true", help="email it (default: print only)")
     args = ap.parse_args()
@@ -232,7 +284,9 @@ def main():
     subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title,
                                      group=args.group, depth=len(path),
                                      inbox_items=inbox.items_for(src),
-                                     measuring=measure.summary() if args.measure else ())
+                                     measuring=measure.summary() if args.measure else (),
+                                     open_items=read_open_items(args.open_items)
+                                     if args.open_items and Path(args.open_items).exists() else ())
     print(subject, "\n", body, sep="")
     if args.send and not mailer.send(subject, body, html=html_body):
         sys.exit(1)
