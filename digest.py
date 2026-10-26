@@ -29,6 +29,7 @@ from datetime import date
 
 import inbox
 import mailer
+import measure
 from notion_walker import (NotionClient, walk, analyze, crumb, find_child,
                            resolve_source, DUE_SOON_DAYS)
 
@@ -51,7 +52,7 @@ def recurs_on(text, today):
     return WEEKDAYS.index(when) == today.weekday()
 
 
-def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=()):
+def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=(), measuring=()):
     today = a["today"]
     live = [i for i in items if not i["done"] and not i["reference"]]
     recurring = {id(i) for i in live if recurs_on(i["text"], today) is not None}
@@ -112,6 +113,14 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_
             parts.append(f"<li style=\"margin-bottom:6px\">{html.escape(it['text'])}</li>")
         text.append("")
         parts.append("</ul></div>")
+    if measuring:
+        text.append("📊 MEASURING")
+        text += [f"  {l}" for l in measuring]
+        text.append("")
+        parts.append("<div style=\"border-left:4px solid #2a8;padding:2px 0 2px 12px;margin-bottom:8px\">"
+                     "<h3 style=\"margin:14px 0 6px\">📊 MEASURING</h3>"
+                     + "".join(f"<p style=\"margin:0 0 4px;font-size:13px\">{html.escape(l)}</p>"
+                               for l in measuring) + "</div>")
     if urgent:
         parts.append("<div style=\"border-left:4px solid #c00;padding:2px 0 2px 12px;margin-bottom:8px\">")
         render_section("🚨 URGENT", urgent, a_note, crumb, text, parts)
@@ -195,6 +204,7 @@ def main():
     ap.add_argument("--a-only", action="store_true", help="only A-tier items (+ recurring today)")
     ap.add_argument("--title", help="email title, e.g. 'STRADA TO DO'")
     ap.add_argument("--group", action="store_true", help="section the email by top-level node")
+    ap.add_argument("--measure", action="store_true", help="include the Measuring section")
     ap.add_argument("--send", action="store_true", help="email it (default: print only)")
     args = ap.parse_args()
 
@@ -221,7 +231,8 @@ def main():
     a = analyze(items)
     subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title,
                                      group=args.group, depth=len(path),
-                                     inbox_items=inbox.items_for(src))
+                                     inbox_items=inbox.items_for(src),
+                                     measuring=measure.summary() if args.measure else ())
     print(subject, "\n", body, sep="")
     if args.send and not mailer.send(subject, body, html=html_body):
         sys.exit(1)
