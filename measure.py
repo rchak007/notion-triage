@@ -101,6 +101,11 @@ def counts(cfg, entries, start, end):
     return out, subs
 
 
+def _detail(sub_counts):
+    """' (AI-TPM 3, myTrading 2)' — subcategory breakdown, biggest first."""
+    return f" ({', '.join(f'{s} {k}' for s, k in sub_counts.most_common())})" if sub_counts else ""
+
+
 def summary(today=None):
     """The 3 Measuring lines: yesterday, this month, all time."""
     if not CONFIG.exists():
@@ -109,7 +114,6 @@ def summary(today=None):
     today = today or date.today()
     start = date.fromisoformat(cfg["start"])
     short = {c["name"]: c.get("short", c["name"]) for c in cfg["categories"]}
-    day_based = set(cfg.get("day_based", []))
     lines = []
 
     y = today - timedelta(days=1)
@@ -117,20 +121,14 @@ def summary(today=None):
         lines.append(f"Yesterday ({y:%a %b %-d}): — tracking starts {start:%b %-d}")
     else:
         c, subs = counts(cfg, entries, y, y)
-        bits = []
-        for name, n in c.items():
-            if name in day_based:
-                bits.append(f"{short[name]} {'✓' if n else '✗'}")
-            else:
-                detail = ", ".join(f"{s} {k}" for s, k in subs[name].most_common())
-                bits.append(f"{short[name]} {n}" + (f" ({detail})" if detail else ""))
-        lines.append(f"Yesterday ({y:%a %b %-d}): " + " · ".join(bits))
+        lines.append(f"Yesterday ({y:%a %b %-d}): " + " · ".join(
+            f"{short[n]} {k}" + _detail(subs[n]) for n, k in c.items()))
 
     def ratio_line(label, frm):
         days = (today - frm).days + 1
-        c, _ = counts(cfg, entries, frm, today)
+        c, subs = counts(cfg, entries, frm, today)
         return (f"{label} ({days} day{'s' if days != 1 else ''}): "
-                + " · ".join(f"{short[n]} {k}/{days}" for n, k in c.items()))
+                + " · ".join(f"{short[n]} {k}/{days}" + _detail(subs[n]) for n, k in c.items()))
 
     month_from = max(today.replace(day=1), start)
     lines.append(ratio_line(f"{calendar.month_name[today.month]} so far", month_from))
