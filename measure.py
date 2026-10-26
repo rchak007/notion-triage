@@ -103,10 +103,8 @@ def counts(cfg, entries, start, end):
 
 
 def _hours(cfg, name, h):
-    """' · 3.5h' for categories that track hours (config "hours_categories")."""
-    if name not in cfg.get("hours_categories", []):
-        return ""
-    return f" · {h:g}h" if h else " · 0h"
+    """' · 3.5h' when any hours were logged for the category; nothing otherwise."""
+    return f" · {round(h, 2):g}h" if h else ""
 
 
 def _detail(sub_counts):
