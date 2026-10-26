@@ -14,7 +14,7 @@ category/sub has aliases ("AI TPM", "AITPM", "TPM" → AI-TPM).
 
   python3 measure.py log Work "finished payroll mod review"
   python3 measure.py log MyDev --sub "ai tpm" "zone price analysis"
-  python3 measure.py log Meditation --date 2026-10-24 "20 min"
+  python3 measure.py log Meditation --date 2026-10-24 --hours 0.33 "20 min"
   python3 measure.py list [--days 7]
   python3 measure.py undo                # remove the most recent entry
   python3 measure.py stats               # the 3 summary lines
@@ -92,13 +92,21 @@ def resolve(cfg, category, sub=None):
 def counts(cfg, entries, start, end):
     """Per category for start..end inclusive: items, or distinct days if day-based."""
     day_based = set(cfg.get("day_based", []))
-    out, subs = {}, {}
+    out, subs, hours = {}, {}, {}
     for c in cfg["categories"]:
         rows = [e for e in entries if e["category"] == c["name"]
                 and start <= date.fromisoformat(e["date"]) <= end]
         out[c["name"]] = len({e["date"] for e in rows}) if c["name"] in day_based else len(rows)
         subs[c["name"]] = Counter(e["sub"] for e in rows if e.get("sub"))
-    return out, subs
+        hours[c["name"]] = sum(e.get("hours") or 0 for e in rows)
+    return out, subs, hours
+
+
+def _hours(cfg, name, h):
+    """' · 3.5h' for categories that track hours (config "hours_categories")."""
+    if name not in cfg.get("hours_categories", []):
+        return ""
+    return f" · {h:g}h" if h else " · 0h"
 
 
 def _detail(sub_counts):
@@ -120,15 +128,16 @@ def summary(today=None):
     if y < start:
         lines.append(f"Yesterday ({y:%a %b %-d}): — tracking starts {start:%b %-d}")
     else:
-        c, subs = counts(cfg, entries, y, y)
-        lines.append(f"Yesterday ({y:%a %b %-d}): " + " · ".join(
-            f"{short[n]} {k}" + _detail(subs[n]) for n, k in c.items()))
+        c, subs, hrs = counts(cfg, entries, y, y)
+        lines.append(f"Yesterday ({y:%a %b %-d}): " + " | ".join(
+            f"{short[n]} {k}" + _hours(cfg, n, hrs[n]) + _detail(subs[n]) for n, k in c.items()))
 
     def ratio_line(label, frm):
         days = (today - frm).days + 1
-        c, subs = counts(cfg, entries, frm, today)
+        c, subs, hrs = counts(cfg, entries, frm, today)
         return (f"{label} ({days} day{'s' if days != 1 else ''}): "
-                + " · ".join(f"{short[n]} {k}/{days}" + _detail(subs[n]) for n, k in c.items()))
+                + " | ".join(f"{short[n]} {k}/{days}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
+                             for n, k in c.items()))
 
     month_from = max(today.replace(day=1), start)
     lines.append(ratio_line(f"{calendar.month_name[today.month]} so far", month_from))
@@ -142,6 +151,7 @@ def main():
     p = sub.add_parser("log")
     p.add_argument("category"); p.add_argument("desc", nargs="?", default="")
     p.add_argument("--sub"); p.add_argument("--date")
+    p.add_argument("--hours", type=float, help="time spent, in hours (e.g. 1.5)")
     p = sub.add_parser("list"); p.add_argument("--days", type=int, default=7)
     sub.add_parser("undo"); sub.add_parser("stats"); sub.add_parser("cats")
     args = ap.parse_args()
@@ -152,14 +162,18 @@ def main():
         d = args.date or date.today().isoformat()
         date.fromisoformat(d)
         entry = {"date": d, "category": cat, "sub": s, "desc": args.desc}
+        if args.hours:
+            entry["hours"] = round(args.hours, 2)
         with open(DATA, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        print(f"logged {d}: {cat}" + (f" › {s}" if s else "") + (f" — {args.desc}" if args.desc else ""))
+        print(f"logged {d}: {cat}" + (f" › {s}" if s else "") + (f" · {args.hours:g}h" if args.hours else "")
+              + (f" — {args.desc}" if args.desc else ""))
     elif args.cmd == "list":
         since = date.today() - timedelta(days=args.days - 1)
         for e in load_entries():
             if date.fromisoformat(e["date"]) >= since:
                 print(f"{e['date']}  {e['category']}" + (f" › {e['sub']}" if e.get("sub") else "")
+                      + (f" · {e['hours']:g}h" if e.get("hours") else "")
                       + (f" — {e['desc']}" if e.get("desc") else ""))
     elif args.cmd == "undo":
         entries = load_entries()
