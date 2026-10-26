@@ -8,8 +8,9 @@ into a prioritized action surface — what's overdue, what's weighted highest, a
 what's quietly going stale — then lets a language model reason over the live tree
 on demand.
 
-It runs as a Streamlit dashboard, deploys to the cloud in minutes, and is built to
-graduate into scheduled, semi-autonomous automation later.
+It runs as a Streamlit dashboard and as scheduled morning email digests from a
+Raspberry Pi, one per Notion source, plus a couple of small local add-ons
+(a quick-capture inbox and personal activity counts).
 
 ```mermaid
 flowchart LR
@@ -36,7 +37,17 @@ flowchart LR
   data: *"what should I focus on before Friday?"* — citing the exact branch each task
   lives under.
 - **Handles multiple workspaces.** Each Notion source becomes its own tab, with an
-  independent dashboard and chat.
+  independent dashboard and chat, and its own email digest.
+- **Emails a morning digest per source** (`digest.py`): urgent items, recurring
+  items due today ("due every Friday …"), overdue, due soon and A-tier items,
+  optionally grouped by top-level section or limited to one subtree
+  (`--root "TO DO"`). Archive branches are never read; DONE / ✅ items drop out.
+- **Quick-capture inbox** (`inbox.py`): things remembered on the go, kept outside
+  Notion and shown first in that source's next digest; finished items are
+  archived with a date.
+- **Personal activity counts** (`measure.py`): one log per activity in
+  configurable categories and subcategories, with loose name matching and typo
+  warnings. Summarized in the digest as yesterday / month-to-date / all-time.
 
 ---
 
@@ -69,6 +80,13 @@ A clean two-part split with one seam between them:
 |---|---|---|
 | `notion_walker.py` | Reads the tree, produces triage buckets. Importable *and* runnable standalone (CLI + offline self-test). | Standard library only |
 | `app.py` | Streamlit UI: per-source dashboards + Ask panels. | Streamlit, Anthropic SDK |
+| `digest.py` | Morning email digest for one source (cron). | Standard library |
+| `mailer.py` | Gmail SMTP sender; reads credentials in place, never raises. See `EMAIL-SETUP.md`. | Standard library |
+| `inbox.py` | Per-source quick-capture inbox with dated archive. | Standard library |
+| `measure.py` | Activity counts per category, for the digest. | Standard library |
+
+Personal data (inbox items, measurements, category config, secrets, private
+runbook) lives only on the Pi and is excluded from git.
 
 The walker knows nothing about the web UI, and the UI knows nothing about HTTP — it
 just consumes structured buckets. That separation is what lets the same engine power a
@@ -118,8 +136,7 @@ python3 notion_walker.py --selftest
   grow past a single context window.
 - **Weekly pattern-spotting** — an LLM pass over history surfacing trends a rule can't
   ("this tier never gets done — batch it or drop it").
-- **Scheduled morning brief** — the same engine on a Raspberry Pi via cron, delivering a
-  daily digest over Telegram / email.
+- ~~**Scheduled morning brief**~~ — done: per-source email digests on the Pi via cron.
 - **Richer priority weighting** — additional tiers and cross-branch dependency awareness.
 
 ---
