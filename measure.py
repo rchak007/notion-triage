@@ -23,6 +23,7 @@ category/sub has aliases ("AI TPM", "AITPM", "TPM" → AI-TPM).
 
 import argparse
 import calendar
+import difflib
 import json
 import re
 import sys
@@ -58,17 +59,33 @@ def _match(name, options):
     return None
 
 
+def _suggest(name, options):
+    """Closest option names for a typo, never applied automatically."""
+    keys = {}
+    for o in options:
+        for k in (o["name"], *o.get("aliases", [])):
+            keys[norm(k)] = o["name"]
+    hits = difflib.get_close_matches(norm(name), list(keys), n=3, cutoff=0.6)
+    return list(dict.fromkeys(keys[h] for h in hits))
+
+
+def _unknown(kind, name, options):
+    guess = _suggest(name, options)
+    known = ", ".join(o["name"] for o in options) or "none"
+    raise SystemExit(f"⚠️ unknown {kind} '{name}'"
+                     + (f" — did you mean {' or '.join(guess)}?" if guess else "")
+                     + f"\n   Known: {known}\n   Nothing was logged.")
+
+
 def resolve(cfg, category, sub=None):
     cat = _match(category, cfg["categories"])
     if not cat:
-        raise SystemExit(f"unknown category '{category}'. Known: "
-                         + ", ".join(c["name"] for c in cfg["categories"]))
+        _unknown("category", category, cfg["categories"])
     if not sub:
         return cat["name"], None
     s = _match(sub, cat.get("subs", []))
     if not s:
-        raise SystemExit(f"unknown {cat['name']} subcategory '{sub}'. Known: "
-                         + ", ".join(x["name"] for x in cat.get("subs", [])) or "none")
+        _unknown(f"{cat['name']} subcategory", sub, cat.get("subs", []))
     return cat["name"], s["name"]
 
 
