@@ -81,6 +81,7 @@ so times follow daylight saving. A failed send retries once 15 minutes later.
 |---|---|---|---|
 | OPA triage | daily 9:30 AM | `digest.py --source OPA --group --send` | `~/.local/state/notion_digest.log` |
 | LAUSD (TASK LISTS) | weekdays 9:30 AM | `DIGEST_TO=<work address> digest.py --source WORKLL --title "TASK LISTS" --send` | `~/.local/state/notion_lausd.log` |
+| REAL ESTATE | Mon, Wed, Fri, Sat 9:30 AM | `digest.py --source REALESTATE --token-from OPA --page <id> --title "REAL ESTATE" --group --send` | `~/.local/state/notion_realestate.log` |
 | STRADA TO DO | weekdays 8:00 AM | `digest.py --source STRADA --token-from OPA --page <id> --root "TO DO" --a-only --title "STRADA TO DO" --send` | `~/.local/state/notion_strada.log` |
 
 STRADA reuses the OPA connection (`--token-from OPA`); the page just has to be
