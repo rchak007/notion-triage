@@ -108,14 +108,15 @@ def _score_cats(cfg):
 
 
 def day_scores(entries, name, start, end):
-    """{date: score} for a score category; the latest log of a day wins.
-    Days without a log are simply absent: 'not reported', never 0."""
-    out = {}
+    """{date: score} for a score category. Several logs in a day (e.g. lunch
+    and dinner) are averaged. Days without a log are simply absent: 'not
+    reported', never 0."""
+    per_day = {}
     for e in entries:
         d = date.fromisoformat(e["date"])
         if e["category"] == name and start <= d <= end and e.get("score") is not None:
-            out[d] = e["score"]
-    return out
+            per_day.setdefault(d, []).append(e["score"])
+    return {d: sum(v) / len(v) for d, v in per_day.items()}
 
 
 def _hours(cfg, name, h):
@@ -148,7 +149,7 @@ def summary(today=None):
         def ybit(n, k):
             if n in scored:
                 sc = day_scores(entries, n, y, y).get(y)
-                return f"{short[n]} {sc:g}" if sc is not None else f"{short[n]} not reported"
+                return f"{short[n]} {round(sc, 2):g}" if sc is not None else f"{short[n]} not reported"
             return f"{short[n]} {k}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
         lines.append(f"Yesterday ({y:%a %b %-d}): " + " | ".join(ybit(n, k) for n, k in c.items()))
 
