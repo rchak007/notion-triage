@@ -83,7 +83,7 @@ def resolve(cfg, category, sub=None):
     if not cat:
         _unknown("category", category, cfg["categories"])
     if not sub:
-        return cat["name"], None
+        return cat["name"], cat.get("default_sub")
     s = _match(sub, cat.get("subs", []))
     if not s:
         _unknown(f"{cat['name']} subcategory", sub, cat.get("subs", []))
