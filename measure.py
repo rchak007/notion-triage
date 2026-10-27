@@ -15,6 +15,7 @@ category/sub has aliases ("AI TPM", "AITPM", "TPM" → AI-TPM).
   python3 measure.py log Work "finished payroll mod review"
   python3 measure.py log MyDev --sub "ai tpm" "zone price analysis"
   python3 measure.py log Meditation --date 2026-10-24 --hours 0.33 "20 min"
+  python3 measure.py log Diet --score 0.5 "ok lunch, junk dinner"
   python3 measure.py list [--days 7]
   python3 measure.py undo                # remove the most recent entry
   python3 measure.py stats               # the 3 summary lines
@@ -102,6 +103,21 @@ def counts(cfg, entries, start, end):
     return out, subs, hours
 
 
+def _score_cats(cfg):
+    return {c["name"] for c in cfg["categories"] if c.get("type") == "score"}
+
+
+def day_scores(entries, name, start, end):
+    """{date: score} for a score category; the latest log of a day wins.
+    Days without a log are simply absent: 'not reported', never 0."""
+    out = {}
+    for e in entries:
+        d = date.fromisoformat(e["date"])
+        if e["category"] == name and start <= d <= end and e.get("score") is not None:
+            out[d] = e["score"]
+    return out
+
+
 def _hours(cfg, name, h):
     """' · 3.5h' when any hours were logged for the category; nothing otherwise."""
     return f" · {round(h, 2):g}h" if h else ""
@@ -127,15 +143,29 @@ def summary(today=None):
         lines.append(f"Yesterday ({y:%a %b %-d}): — tracking starts {start:%b %-d}")
     else:
         c, subs, hrs = counts(cfg, entries, y, y)
-        lines.append(f"Yesterday ({y:%a %b %-d}): " + " | ".join(
-            f"{short[n]} {k}" + _hours(cfg, n, hrs[n]) + _detail(subs[n]) for n, k in c.items()))
+        scored = _score_cats(cfg)
+
+        def ybit(n, k):
+            if n in scored:
+                sc = day_scores(entries, n, y, y).get(y)
+                return f"{short[n]} {sc:g}" if sc is not None else f"{short[n]} not reported"
+            return f"{short[n]} {k}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
+        lines.append(f"Yesterday ({y:%a %b %-d}): " + " | ".join(ybit(n, k) for n, k in c.items()))
 
     def ratio_line(label, frm):
         days = (today - frm).days + 1
         c, subs, hrs = counts(cfg, entries, frm, today)
+        scored = _score_cats(cfg)
+
+        def rbit(n, k):
+            if n in scored:
+                sc = day_scores(entries, n, frm, today)
+                if not sc:
+                    return f"{short[n]} not reported"
+                return f"{short[n]} avg {sum(sc.values()) / len(sc):.2f} ({len(sc)}/{days} days reported)"
+            return f"{short[n]} {k}/{days}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
         return (f"{label} ({days} day{'s' if days != 1 else ''}): "
-                + " | ".join(f"{short[n]} {k}/{days}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
-                             for n, k in c.items()))
+                + " | ".join(rbit(n, k) for n, k in c.items()))
 
     month_from = max(today.replace(day=1), start)
     lines.append(ratio_line(f"{calendar.month_name[today.month]} so far", month_from))
@@ -150,6 +180,7 @@ def main():
     p.add_argument("category"); p.add_argument("desc", nargs="?", default="")
     p.add_argument("--sub"); p.add_argument("--date")
     p.add_argument("--hours", type=float, help="time spent, in hours (e.g. 1.5)")
+    p.add_argument("--score", type=float, help="0–1 for score categories like Diet (1 = perfect)")
     p = sub.add_parser("list"); p.add_argument("--days", type=int, default=7)
     sub.add_parser("undo"); sub.add_parser("stats"); sub.add_parser("cats")
     args = ap.parse_args()
@@ -159,12 +190,20 @@ def main():
         cat, s = resolve(cfg, args.category, args.sub)
         d = args.date or date.today().isoformat()
         date.fromisoformat(d)
+        is_score = cat in _score_cats(cfg)
+        if is_score and args.score is None:
+            raise SystemExit(f"⚠️ {cat} needs --score between 0 and 1 (1 = perfect). Nothing was logged.")
+        if args.score is not None and not (is_score and 0 <= args.score <= 1):
+            raise SystemExit("⚠️ --score must be 0–1 and only for score categories. Nothing was logged.")
         entry = {"date": d, "category": cat, "sub": s, "desc": args.desc}
+        if is_score:
+            entry["score"] = args.score
         if args.hours:
             entry["hours"] = round(args.hours, 2)
         with open(DATA, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         print(f"logged {d}: {cat}" + (f" › {s}" if s else "") + (f" · {args.hours:g}h" if args.hours else "")
+              + (f" · score {args.score:g}" if is_score else "")
               + (f" — {args.desc}" if args.desc else ""))
     elif args.cmd == "list":
         since = date.today() - timedelta(days=args.days - 1)
@@ -172,6 +211,7 @@ def main():
             if date.fromisoformat(e["date"]) >= since:
                 print(f"{e['date']}  {e['category']}" + (f" › {e['sub']}" if e.get("sub") else "")
                       + (f" · {e['hours']:g}h" if e.get("hours") else "")
+                      + (f" · score {e['score']:g}" if e.get("score") is not None else "")
                       + (f" — {e['desc']}" if e.get("desc") else ""))
     elif args.cmd == "undo":
         entries = load_entries()
