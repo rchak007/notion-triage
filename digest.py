@@ -84,7 +84,7 @@ def recurs_on(text, today):
     return WEEKDAYS.index(when) == today.weekday()
 
 
-def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=(), measuring=(), open_items=()):
+def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_items=(), measuring=None, open_items=()):
     today = a["today"]
     live = [i for i in items if not i["done"] and not i["reference"]]
     recurring = {id(i) for i in live if recurs_on(i["text"], today) is not None}
@@ -151,13 +151,21 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_
         text.append("")
         parts.append("</ul></div>")
     if measuring:
-        text.append("📊 MEASURING")
-        text += [f"  {l}" for l in measuring]
-        text.append("")
+        text += ["📊 MEASURING"] + [f"  {l}" for l in measure.text_table(measuring)] + [""]
+        td = "padding:4px 8px;border:1px solid #ddd;white-space:nowrap"
+        head = "".join(f"<th style=\"{td};background:#f3f3f3;text-align:left\">{html.escape(h)}</th>"
+                       for h in ["Category"] + measuring["headers"])
+        body = ""
+        for label, is_sub, *cells in measuring["rows"]:
+            style = f"{td};color:#666;font-size:12px" if is_sub else f"{td};font-weight:600"
+            name = ("&nbsp;&nbsp;› " if is_sub else "") + html.escape(label)
+            body += (f"<tr{' style=\"background:#fafafa\"' if is_sub else ''}><td style=\"{style}\">{name}</td>"
+                     + "".join(f"<td style=\"{td}{';color:#666;font-size:12px' if is_sub else ''}\">"
+                               f"{html.escape(c)}</td>" for c in cells) + "</tr>")
         parts.append("<div style=\"border-left:4px solid #2a8;padding:2px 0 2px 12px;margin-bottom:8px\">"
                      "<h3 style=\"margin:14px 0 6px\">📊 MEASURING</h3>"
-                     + "".join(f"<p style=\"margin:0 0 4px;font-size:13px\">{html.escape(l)}</p>"
-                               for l in measuring) + "</div>")
+                     "<div style=\"overflow-x:auto\"><table style=\"border-collapse:collapse;font-size:13px\">"
+                     f"<tr>{head}</tr>{body}</table></div></div>")
     if urgent:
         parts.append("<div style=\"border-left:4px solid #c00;padding:2px 0 2px 12px;margin-bottom:8px\">")
         render_section("🚨 URGENT", urgent, a_note, crumb, text, parts)
@@ -284,7 +292,7 @@ def main():
     subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title,
                                      group=args.group, depth=len(path),
                                      inbox_items=inbox.items_for(src),
-                                     measuring=measure.summary() if args.measure else (),
+                                     measuring=measure.table() if args.measure else None,
                                      open_items=read_open_items(args.open_items)
                                      if args.open_items and Path(args.open_items).exists() else ())
     print(subject, "\n", body, sep="")

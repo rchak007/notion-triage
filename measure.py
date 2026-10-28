@@ -129,49 +129,95 @@ def _detail(sub_counts):
     return f" ({', '.join(f'{s} {k}' for s, k in sub_counts.most_common())})" if sub_counts else ""
 
 
-def summary(today=None):
-    """The 3 Measuring lines: yesterday, this month, all time."""
+def _period(cfg, entries, frm, to):
+    """{category: {"n", "h", "subs": {sub: [n, h]}, "score": (avg, days) | None}}"""
+    scored = _score_cats(cfg)
+    out = {}
+    for c in cfg["categories"]:
+        name = c["name"]
+        rows = [e for e in entries if e["category"] == name
+                and frm <= date.fromisoformat(e["date"]) <= to]
+        subs = {}
+        for e in rows:
+            if e.get("sub"):
+                t = subs.setdefault(e["sub"], [0, 0.0])
+                t[0] += 1
+                t[1] += e.get("hours") or 0
+        score = None
+        if name in scored:
+            sc = day_scores(entries, name, frm, to)
+            score = (sum(sc.values()) / len(sc), len(sc)) if sc else None
+        out[name] = {"n": len(rows), "h": sum(e.get("hours") or 0 for e in rows),
+                     "subs": subs, "score": score}
+    return out
+
+
+def _cell(n, h, days=None):
+    s = f"{n}/{days}" if days else f"{n}"
+    return s + (f" · {round(h, 2):g}h" if h else "")
+
+
+def table(today=None):
+    """Measuring table: {"headers": [...3 column titles], "rows": [(label, is_sub, y, m, a)]}.
+    Rows are categories, with indented subcategory rows under any that have
+    activity. Returns None when measurements aren't set up."""
     if not CONFIG.exists():
-        return []
+        return None
     cfg, entries = load_config(), load_entries()
     today = today or date.today()
     start = date.fromisoformat(cfg["start"])
-    short = {c["name"]: c.get("short", c["name"]) for c in cfg["categories"]}
-    lines = []
-
     y = today - timedelta(days=1)
-    if y < start:
-        lines.append(f"Yesterday ({y:%a %b %-d}): — tracking starts {start:%b %-d}")
-    else:
-        c, subs, hrs = counts(cfg, entries, y, y)
-        scored = _score_cats(cfg)
-
-        def ybit(n, k):
-            if n in scored:
-                sc = day_scores(entries, n, y, y).get(y)
-                return f"{short[n]} {round(sc, 2):g}" if sc is not None else f"{short[n]} not reported"
-            return f"{short[n]} {k}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
-        lines.append(f"Yesterday ({y:%a %b %-d}): " + " | ".join(ybit(n, k) for n, k in c.items()))
-
-    def ratio_line(label, frm):
-        days = (today - frm).days + 1
-        c, subs, hrs = counts(cfg, entries, frm, today)
-        scored = _score_cats(cfg)
-
-        def rbit(n, k):
-            if n in scored:
-                sc = day_scores(entries, n, frm, today)
-                if not sc:
-                    return f"{short[n]} not reported"
-                return f"{short[n]} avg {sum(sc.values()) / len(sc):.2f} ({len(sc)}/{days} days reported)"
-            return f"{short[n]} {k}/{days}" + _hours(cfg, n, hrs[n]) + _detail(subs[n])
-        return (f"{label} ({days} day{'s' if days != 1 else ''}): "
-                + " | ".join(rbit(n, k) for n, k in c.items()))
-
     month_from = max(today.replace(day=1), start)
-    lines.append(ratio_line(f"{calendar.month_name[today.month]} so far", month_from))
-    lines.append(ratio_line(f"All time since {start:%b %-d}", start))
-    return lines
+    mdays, adays = (today - month_from).days + 1, (today - start).days + 1
+    have_y = y >= start
+    P = {"y": _period(cfg, entries, y, y) if have_y else None,
+         "m": _period(cfg, entries, month_from, today),
+         "a": _period(cfg, entries, start, today)}
+    headers = [f"Yesterday ({y:%a %b %-d})" if have_y else f"Yesterday (tracking starts {start:%b %-d})",
+               f"{calendar.month_name[today.month]} so far ({mdays}d)",
+               f"All time since {start:%b %-d} ({adays}d)"]
+    rows = []
+    for c in cfg["categories"]:
+        name, label = c["name"], c.get("short", c["name"])
+        if c.get("type") == "score":
+            def sc(per, days, single=False):
+                if per is None:
+                    return "—"
+                v = per[name]["score"]
+                if not v:
+                    return "not reported"
+                return f"{v[0]:.2f}" if single else f"avg {v[0]:.2f} ({v[1]}/{days}d)"
+            rows.append((label, False, sc(P["y"], 1, True), sc(P["m"], mdays), sc(P["a"], adays)))
+            continue
+        yc = _cell(P["y"][name]["n"], P["y"][name]["h"]) if have_y else "—"
+        rows.append((label, False, yc, _cell(P["m"][name]["n"], P["m"][name]["h"], mdays),
+                     _cell(P["a"][name]["n"], P["a"][name]["h"], adays)))
+        order = [x["name"] for x in c.get("subs", [])]
+        for sub in sorted(P["a"][name]["subs"], key=lambda k: order.index(k) if k in order else 99):
+            def sv(per, days=None):
+                if per is None:
+                    return "—"
+                n, h = per[name]["subs"].get(sub, [0, 0])
+                return _cell(n, h, days)
+            rows.append((sub, True, sv(P["y"]), sv(P["m"], mdays), sv(P["a"], adays)))
+    return {"headers": headers, "rows": rows}
+
+
+def text_table(t):
+    """Fixed-width plain-text rendering of table()."""
+    labels = [("  › " + r[0]) if r[1] else r[0] for r in t["rows"]]
+    cols = [["Category"] + labels] + [[t["headers"][i]] + [r[2 + i] for r in t["rows"]] for i in range(3)]
+    w = [max(len(x) for x in col) for col in cols]
+    line = lambda cells: "  ".join(c.ljust(w[i]) for i, c in enumerate(cells)).rstrip()
+    out = [line([col[0] for col in cols]), "  ".join("─" * x for x in w)]
+    out += [line([col[k] for col in cols]) for k in range(1, len(cols[0]))]
+    return out
+
+
+def summary(today=None):
+    """Plain-text lines of the Measuring table (CLI `stats`)."""
+    t = table(today)
+    return text_table(t) if t else []
 
 
 def main():
