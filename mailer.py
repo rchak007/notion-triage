@@ -58,6 +58,11 @@ def load_mail_env(path=None):
     return values
 
 
+def cc_list():
+    """DIGEST_CC (comma-separated): copied on every message, visible to all."""
+    return [a.strip() for a in os.environ.get("DIGEST_CC", "").split(",") if a.strip()]
+
+
 def recipients():
     """DIGEST_TO (comma-separated), set in this project's gitignored .env /
     secrets.toml so addresses stay out of the public repo."""
@@ -100,13 +105,20 @@ def send(subject, body, html=None, to=None, log=print):
             # credential is fine and a browser sign-in on this network clears it.
             log(f"SMTP login failed: {e}")
             return False
-        for i, rcpt in enumerate(to):
+        cc = cc_list()
+        # With CC, one message goes to everyone (all addresses visible);
+        # otherwise each recipient gets their own copy.
+        batches = [to] if cc else [[r] for r in to]
+        for i, batch in enumerate(batches):
             if i:
                 time.sleep(2)  # pacing; a burst scores on Gmail's abuse heuristics
+            rcpt = ", ".join(batch + cc)
             msg = EmailMessage()
             msg["Subject"] = subject
             msg["From"] = formataddr((FROM_NAME, address))
-            msg["To"] = rcpt
+            msg["To"] = ", ".join(batch)
+            if cc:
+                msg["Cc"] = ", ".join(cc)
             msg.set_content(body)
             if html:
                 msg.add_alternative(html, subtype="html")
