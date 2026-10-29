@@ -245,6 +245,9 @@ def main():
         entry = {"date": d, "category": cat, "sub": s, "desc": args.desc}
         if is_score:
             entry["score"] = args.score
+        if args.hours and any(c["name"] == cat and c.get("no_hours") for c in cfg["categories"]):
+            print(f"note: {cat} counts items only; hours not recorded")
+            args.hours = None
         if args.hours:
             entry["hours"] = round(args.hours, 2)
         with open(DATA, "a") as f:
