@@ -18,7 +18,8 @@ category/sub has aliases ("AI TPM", "AITPM", "TPM" → AI-TPM).
   python3 measure.py log Diet --score 0.5 "ok lunch, junk dinner"
   python3 measure.py list [--days 7]
   python3 measure.py undo                # remove the most recent entry
-  python3 measure.py stats               # the 3 summary lines
+  python3 measure.py stats               # the Measuring table
+  python3 measure.py day [--date D]      # one day, vertical
   python3 measure.py cats                # categories, subs, aliases
 """
 
@@ -214,6 +215,27 @@ def text_table(t):
     return out
 
 
+def day_rows(d):
+    """Vertical one-day view: [(label, is_sub, cell)] for every category, with
+    subcategory rows for those used that day."""
+    cfg, entries = load_config(), load_entries()
+    P = _period(cfg, entries, d, d)
+    rows = []
+    for c in cfg["categories"]:
+        name, label, p = c["name"], c.get("short", c["name"]), P[c["name"]]
+        if c.get("type") == "score":
+            rows.append((label, False, f"{p['score'][0]:.2f}" if p["score"] else "not reported"))
+            continue
+        rows.append((label, False, _cell(p["n"], p["h"])))
+        order = [x["name"] for x in c.get("subs", [])]
+        for sub, (n, h) in sorted(p["subs"].items(), key=lambda kv: order.index(kv[0]) if kv[0] in order else 99):
+            rows.append((sub, True, _cell(n, h)))
+    n = sum(P[c["name"]]["n"] for c in cfg["categories"] if c.get("type") != "score")
+    h = sum(P[c["name"]]["h"] for c in cfg["categories"])
+    rows.append(("Total", False, _cell(n, h)))
+    return rows
+
+
 def summary(today=None):
     """Plain-text lines of the Measuring table (CLI `stats`)."""
     t = table(today)
@@ -230,6 +252,7 @@ def main():
     p.add_argument("--score", type=float, help="0–1 for score categories like Diet (1 = perfect)")
     p = sub.add_parser("list"); p.add_argument("--days", type=int, default=7)
     sub.add_parser("undo"); sub.add_parser("stats"); sub.add_parser("cats")
+    p = sub.add_parser("day"); p.add_argument("--date", help="YYYY-MM-DD, default today")
     args = ap.parse_args()
     cfg = load_config()
 
@@ -270,6 +293,13 @@ def main():
         last = entries.pop()
         DATA.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
         print(f"removed: {last}")
+    elif args.cmd == "day":
+        d = date.fromisoformat(args.date) if args.date else date.today()
+        rows = day_rows(d)
+        w = max(len(("  › " if sub else "") + l) for l, sub, _ in rows)
+        print(f"{'Category':<{w}}  {d:%a %b %-d}")
+        for l, sub, cell in rows:
+            print(f"{(('  › ' if sub else '') + l):<{w}}  {cell}")
     elif args.cmd == "stats":
         print("\n".join(summary()))
     elif args.cmd == "cats":
