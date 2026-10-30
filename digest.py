@@ -153,15 +153,21 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_
     if measuring:
         text += ["📊 MEASURING"] + [f"  {l}" for l in measure.text_table(measuring)] + [""]
         td = "padding:4px 8px;border:1px solid #ddd;white-space:nowrap"
+        hd = measuring["headers"]
         head = "".join(f"<th style=\"{td};background:#f3f3f3;text-align:left\">{html.escape(h)}</th>"
-                       for h in ["Category"] + measuring["headers"])
+                       for h in ["Category", hd[0], "Yesterday's notes", hd[1], hd[2]])
+        note_td = ("padding:4px 8px;border:1px solid #ddd;font-size:12px;color:#444;"
+                   "min-width:200px;max-width:360px;white-space:normal")
         body = ""
-        for label, is_sub, *cells in measuring["rows"]:
+        for label, is_sub, y, m, a, note in measuring["rows"]:
             style = f"{td};color:#666;font-size:12px" if is_sub else f"{td};font-weight:600"
+            dim = ";color:#666;font-size:12px" if is_sub else ""
             name = ("&nbsp;&nbsp;› " if is_sub else "") + html.escape(label)
             body += (f"<tr{' style=\"background:#fafafa\"' if is_sub else ''}><td style=\"{style}\">{name}</td>"
-                     + "".join(f"<td style=\"{td}{';color:#666;font-size:12px' if is_sub else ''}\">"
-                               f"{html.escape(c)}</td>" for c in cells) + "</tr>")
+                     f"<td style=\"{td}{dim}\">{html.escape(y)}</td>"
+                     f"<td style=\"{note_td}\">{html.escape(note)}</td>"
+                     f"<td style=\"{td}{dim}\">{html.escape(m)}</td>"
+                     f"<td style=\"{td}{dim}\">{html.escape(a)}</td></tr>")
         parts.append("<div style=\"border-left:4px solid #2a8;padding:2px 0 2px 12px;margin-bottom:8px\">"
                      "<h3 style=\"margin:14px 0 6px\">📊 MEASURING</h3>"
                      "<div style=\"overflow-x:auto\"><table style=\"border-collapse:collapse;font-size:13px\">"

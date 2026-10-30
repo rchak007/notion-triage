@@ -159,7 +159,7 @@ def _cell(n, h, days=None):
 
 
 def table(today=None):
-    """Measuring table: {"headers": [...3 column titles], "rows": [(label, is_sub, y, m, a)]}.
+    """Measuring table: {"headers": [...3 column titles], "rows": [(label, is_sub, y, m, a, ynotes)]}.
     Rows are categories, with indented subcategory rows under any that have
     activity. Returns None when measurements aren't set up."""
     if not CONFIG.exists():
@@ -177,6 +177,12 @@ def table(today=None):
     headers = [f"Yesterday ({y:%a %b %-d})" if have_y else f"Yesterday (tracking starts {start:%b %-d})",
                f"{calendar.month_name[today.month]} so far ({mdays}d)",
                f"All time since {start:%b %-d} ({adays}d)"]
+    yday = [e for e in entries if have_y and e["date"] == y.isoformat() and e.get("desc")]
+
+    def ynote(name, sub=None, any_sub=False):
+        return " • ".join(e["desc"] for e in yday if e["category"] == name
+                          and (any_sub or e.get("sub") == sub))
+
     rows = []
     for c in cfg["categories"]:
         name, label = c["name"], c.get("short", c["name"])
@@ -188,11 +194,14 @@ def table(today=None):
                 if not v:
                     return "not reported"
                 return f"{v[0]:.2f}" if single else f"avg {v[0]:.2f} ({v[1]}/{days}d)"
-            rows.append((label, False, sc(P["y"], 1, True), sc(P["m"], mdays), sc(P["a"], adays)))
+            rows.append((label, False, sc(P["y"], 1, True), sc(P["m"], mdays), sc(P["a"], adays),
+                         ynote(name, any_sub=True)))
             continue
         yc = _cell(P["y"][name]["n"], P["y"][name]["h"]) if have_y else "—"
+        has_subs = bool(P["a"][name]["subs"])
         rows.append((label, False, yc, _cell(P["m"][name]["n"], P["m"][name]["h"], mdays),
-                     _cell(P["a"][name]["n"], P["a"][name]["h"], adays)))
+                     _cell(P["a"][name]["n"], P["a"][name]["h"], adays),
+                     ynote(name, None) if has_subs else ynote(name, any_sub=True)))
         order = [x["name"] for x in c.get("subs", [])]
         for sub in sorted(P["a"][name]["subs"], key=lambda k: order.index(k) if k in order else 99):
             def sv(per, days=None):
@@ -200,15 +209,17 @@ def table(today=None):
                     return "—"
                 n, h = per[name]["subs"].get(sub, [0, 0])
                 return _cell(n, h, days)
-            rows.append((sub, True, sv(P["y"]), sv(P["m"], mdays), sv(P["a"], adays)))
+            rows.append((sub, True, sv(P["y"]), sv(P["m"], mdays), sv(P["a"], adays), ynote(name, sub)))
     return {"headers": headers, "rows": rows}
 
 
 def text_table(t):
     """Fixed-width plain-text rendering of table()."""
     labels = [("  › " + r[0]) if r[1] else r[0] for r in t["rows"]]
-    cols = [["Category"] + labels] + [[t["headers"][i]] + [r[2 + i] for r in t["rows"]] for i in range(3)]
+    cols = ([["Category"] + labels] + [[t["headers"][i]] + [r[2 + i] for r in t["rows"]] for i in range(3)]
+            + [["Yesterday notes"] + [r[5] for r in t["rows"]]])
     w = [max(len(x) for x in col) for col in cols]
+    w[-1] = len(cols[-1][0])  # notes run free at the end of the line
     line = lambda cells: "  ".join(c.ljust(w[i]) for i, c in enumerate(cells)).rstrip()
     out = [line([col[0] for col in cols]), "  ".join("─" * x for x in w)]
     out += [line([col[k] for col in cols]) for k in range(1, len(cols[0]))]
