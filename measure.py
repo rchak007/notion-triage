@@ -142,19 +142,20 @@ def _period(cfg, entries, frm, to):
         for e in rows:
             if e.get("sub"):
                 t = subs.setdefault(e["sub"], [0, 0.0])
-                t[0] += 1
+                t[0] += e.get("count", 1)
                 t[1] += e.get("hours") or 0
         score = None
         if name in scored:
             sc = day_scores(entries, name, frm, to)
             score = (sum(sc.values()) / len(sc), len(sc)) if sc else None
-        out[name] = {"n": len(rows), "h": sum(e.get("hours") or 0 for e in rows),
+        out[name] = {"n": sum(e.get("count", 1) for e in rows), "h": sum(e.get("hours") or 0 for e in rows),
                      "subs": subs, "score": score}
     return out
 
 
 def _cell(n, h, days=None):
-    s = f"{n}/{days}" if days else f"{n}"
+    n = round(n, 2)
+    s = f"{n:g}/{days}" if days else f"{n:g}"
     return s + (f" · {round(h, 2):g}h" if h else "")
 
 
@@ -270,6 +271,7 @@ def main():
     p.add_argument("category"); p.add_argument("desc", nargs="?", default="")
     p.add_argument("--sub"); p.add_argument("--date")
     p.add_argument("--hours", type=float, help="time spent, in hours (e.g. 1.5)")
+    p.add_argument("--count", type=float, help="fraction of an item, e.g. 0.1 for a small subtask (default 1)")
     p.add_argument("--score", type=float, help="0–1 for score categories like Diet (1 = perfect)")
     p = sub.add_parser("list"); p.add_argument("--days", type=int, default=7)
     sub.add_parser("undo"); sub.add_parser("stats"); sub.add_parser("cats")
@@ -289,6 +291,10 @@ def main():
         entry = {"date": d, "category": cat, "sub": s, "desc": args.desc}
         if is_score:
             entry["score"] = args.score
+        if args.count is not None and args.count != 1:
+            if not (0 < args.count <= 1):
+                raise SystemExit("⚠️ --count must be between 0 and 1. Nothing was logged.")
+            entry["count"] = args.count
         if args.hours and any(c["name"] == cat and c.get("no_hours") for c in cfg["categories"]):
             print(f"note: {cat} counts items only; hours not recorded")
             args.hours = None
@@ -296,7 +302,8 @@ def main():
             entry["hours"] = round(args.hours, 2)
         with open(DATA, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        print(f"logged {d}: {cat}" + (f" › {s}" if s else "") + (f" · {args.hours:g}h" if args.hours else "")
+        print(f"logged {d}: {cat}" + (f" › {s}" if s else "") + (f" · count {args.count:g}" if entry.get("count") else "")
+              + (f" · {args.hours:g}h" if args.hours else "")
               + (f" · score {args.score:g}" if is_score else "")
               + (f" — {args.desc}" if args.desc else ""))
     elif args.cmd == "list":
@@ -304,6 +311,7 @@ def main():
         for e in load_entries():
             if date.fromisoformat(e["date"]) >= since:
                 print(f"{e['date']}  {e['category']}" + (f" › {e['sub']}" if e.get("sub") else "")
+                      + (f" · count {e['count']:g}" if e.get("count") else "")
                       + (f" · {e['hours']:g}h" if e.get("hours") else "")
                       + (f" · score {e['score']:g}" if e.get("score") is not None else "")
                       + (f" — {e['desc']}" if e.get("desc") else ""))
