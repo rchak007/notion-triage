@@ -216,23 +216,33 @@ def text_table(t):
 
 
 def day_rows(d):
-    """Vertical one-day view: [(label, is_sub, cell)] for every category, with
-    subcategory rows for those used that day."""
+    """Vertical one-day view: [(label, is_sub, cell, notes)] for every category,
+    with subcategory rows for those used that day. Notes are that row's entry
+    descriptions (on the sub rows when a category has subs)."""
     cfg, entries = load_config(), load_entries()
     P = _period(cfg, entries, d, d)
+    day = [e for e in entries if e["date"] == d.isoformat()]
+
+    def notes(name, sub=None, any_sub=False):
+        rows = [e for e in day if e["category"] == name
+                and (any_sub or e.get("sub") == sub) and e.get("desc")]
+        return " • ".join(e["desc"] for e in rows)
+
     rows = []
     for c in cfg["categories"]:
         name, label, p = c["name"], c.get("short", c["name"]), P[c["name"]]
         if c.get("type") == "score":
-            rows.append((label, False, f"{p['score'][0]:.2f}" if p["score"] else "not reported"))
+            rows.append((label, False, f"{p['score'][0]:.2f}" if p["score"] else "not reported",
+                         notes(name, any_sub=True)))
             continue
-        rows.append((label, False, _cell(p["n"], p["h"])))
+        rows.append((label, False, _cell(p["n"], p["h"]),
+                     notes(name, None) if p["subs"] else notes(name, any_sub=True)))
         order = [x["name"] for x in c.get("subs", [])]
         for sub, (n, h) in sorted(p["subs"].items(), key=lambda kv: order.index(kv[0]) if kv[0] in order else 99):
-            rows.append((sub, True, _cell(n, h)))
+            rows.append((sub, True, _cell(n, h), notes(name, sub)))
     n = sum(P[c["name"]]["n"] for c in cfg["categories"] if c.get("type") != "score")
     h = sum(P[c["name"]]["h"] for c in cfg["categories"])
-    rows.append(("Total", False, _cell(n, h)))
+    rows.append(("Total", False, _cell(n, h), ""))
     return rows
 
 
@@ -296,10 +306,11 @@ def main():
     elif args.cmd == "day":
         d = date.fromisoformat(args.date) if args.date else date.today()
         rows = day_rows(d)
-        w = max(len(("  › " if sub else "") + l) for l, sub, _ in rows)
-        print(f"{'Category':<{w}}  {d:%a %b %-d}")
-        for l, sub, cell in rows:
-            print(f"{(('  › ' if sub else '') + l):<{w}}  {cell}")
+        w = max(len(("  › " if sub else "") + l) for l, sub, _, _ in rows)
+        cw = max(len(c) for _, _, c, _ in rows + [("", False, f"{d:%a %b %-d}", "")])
+        print(f"{'Category':<{w}}  {format(d, '%a %b %-d'):<{cw}}  Notes")
+        for l, sub, cell, note in rows:
+            print(f"{(('  › ' if sub else '') + l):<{w}}  {cell:<{cw}}  {note}".rstrip())
     elif args.cmd == "stats":
         print("\n".join(summary()))
     elif args.cmd == "cats":
