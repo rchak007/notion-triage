@@ -25,7 +25,7 @@ import html
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import inbox
@@ -151,27 +151,46 @@ def build(name, a, items, a_only=False, title=None, group=False, depth=0, inbox_
         text.append("")
         parts.append("</ul></div>")
     if measuring:
-        text += ["📊 MEASURING"] + [f"  {l}" for l in measure.text_table(measuring)] + [""]
         td = "padding:4px 8px;border:1px solid #ddd;white-space:nowrap"
-        hd = measuring["headers"]
-        head = "".join(f"<th style=\"{td};background:#f3f3f3;text-align:left\">{html.escape(h)}</th>"
-                       for h in ["Category", hd[0], "Yesterday's notes", hd[1], hd[2]])
+        th = f"{td};background:#f3f3f3;text-align:left"
         note_td = ("padding:4px 8px;border:1px solid #ddd;font-size:12px;color:#444;"
-                   "min-width:200px;max-width:360px;white-space:normal")
-        body = ""
-        for label, is_sub, y, m, a, note in measuring["rows"]:
+                   "min-width:200px;max-width:380px;white-space:normal")
+
+        def row_open(is_sub):
+            return "<tr style=\"background:#fafafa\">" if is_sub else "<tr>"
+
+        def name_td(label, is_sub):
             style = f"{td};color:#666;font-size:12px" if is_sub else f"{td};font-weight:600"
-            dim = ";color:#666;font-size:12px" if is_sub else ""
-            name = ("&nbsp;&nbsp;› " if is_sub else "") + html.escape(label)
-            body += (f"<tr{' style=\"background:#fafafa\"' if is_sub else ''}><td style=\"{style}\">{name}</td>"
-                     f"<td style=\"{td}{dim}\">{html.escape(y)}</td>"
-                     f"<td style=\"{note_td}\">{html.escape(note)}</td>"
-                     f"<td style=\"{td}{dim}\">{html.escape(m)}</td>"
-                     f"<td style=\"{td}{dim}\">{html.escape(a)}</td></tr>")
+            return f"<td style=\"{style}\">{'&nbsp;&nbsp;› ' if is_sub else ''}{html.escape(label)}</td>"
+
+        def val_td(v, is_sub):
+            return f"<td style=\"{td}{';color:#666;font-size:12px' if is_sub else ''}\">{html.escape(v)}</td>"
+
+        yd, yrows, t = measuring["ydate"], measuring["yrows"], measuring["table"]
+        # 1) Yesterday: what was done, with notes
+        text += ["📊 MEASURING", f"  Yesterday ({yd:%a %b %-d})"]
+        w = max(len(("  › " if sub else "") + l) for l, sub, _, _ in yrows)
+        cw = max(len(c) for _, _, c, _ in yrows)
+        text += [f"    {(('  › ' if sub else '') + l):<{w}}  {c:<{cw}}  {n}".rstrip() for l, sub, c, n in yrows]
+        ybody = "".join(row_open(sub) + name_td(l, sub) + val_td(c, sub)
+                        + f"<td style=\"{note_td}\">{html.escape(n)}</td></tr>" for l, sub, c, n in yrows)
+        # 2) Month so far / All time
+        hd = t["headers"]
+        text += ["", f"  {hd[1]} · {hd[2]}"]
+        w2 = max(len(("  › " if r[1] else "") + r[0]) for r in t["rows"])
+        mw = max(len(r[3]) for r in t["rows"])
+        text += [f"    {(('  › ' if r[1] else '') + r[0]):<{w2}}  {r[3]:<{mw}}  {r[4]}" for r in t["rows"]] + [""]
+        tbody = "".join(row_open(r[1]) + name_td(r[0], r[1]) + val_td(r[3], r[1]) + val_td(r[4], r[1]) + "</tr>"
+                        for r in t["rows"])
+        tbl = "<div style=\"overflow-x:auto\"><table style=\"border-collapse:collapse;font-size:13px\">"
         parts.append("<div style=\"border-left:4px solid #2a8;padding:2px 0 2px 12px;margin-bottom:8px\">"
                      "<h3 style=\"margin:14px 0 6px\">📊 MEASURING</h3>"
-                     "<div style=\"overflow-x:auto\"><table style=\"border-collapse:collapse;font-size:13px\">"
-                     f"<tr>{head}</tr>{body}</table></div></div>")
+                     f"<h4 style=\"margin:8px 0 4px\">Yesterday ({yd:%a %b %-d})</h4>{tbl}"
+                     f"<tr><th style=\"{th}\">Category</th><th style=\"{th}\">Done</th>"
+                     f"<th style=\"{th}\">Notes</th></tr>{ybody}</table></div>"
+                     f"<h4 style=\"margin:16px 0 4px\">Totals</h4>{tbl}"
+                     f"<tr><th style=\"{th}\">Category</th><th style=\"{th}\">{html.escape(hd[1])}</th>"
+                     f"<th style=\"{th}\">{html.escape(hd[2])}</th></tr>{tbody}</table></div></div>")
     if urgent:
         parts.append("<div style=\"border-left:4px solid #c00;padding:2px 0 2px 12px;margin-bottom:8px\">")
         render_section("🚨 URGENT", urgent, a_note, crumb, text, parts)
@@ -258,6 +277,15 @@ def render_grouped(sections, items, depth, text, parts):
             render_section(sec_title, [i for i in lst if key(i) == g], note, where, text, parts, indent="  ")
 
 
+def measuring_data():
+    """Yesterday's one-day rows plus the month/all-time table, or None."""
+    t = measure.table()
+    if not t:
+        return None
+    y = date.today() - timedelta(days=1)
+    return {"table": t, "ydate": y, "yrows": measure.day_rows(y)}
+
+
 def main():
     ap = argparse.ArgumentParser(description="Email digest for one Notion source.")
     ap.add_argument("--source", required=True, help="e.g. OPA, WORKLL, STRADA")
@@ -298,7 +326,7 @@ def main():
     subject, body, html_body = build(src, a, items, a_only=args.a_only, title=args.title,
                                      group=args.group, depth=len(path),
                                      inbox_items=inbox.items_for(src),
-                                     measuring=measure.table() if args.measure else None,
+                                     measuring=measuring_data() if args.measure else None,
                                      open_items=read_open_items(args.open_items)
                                      if args.open_items and Path(args.open_items).exists() else ())
     print(subject, "\n", body, sep="")
